@@ -25,11 +25,6 @@ THE SOFTWARE.
 
 ************************************************************************/
 
-error_reporting(E_PARSE) ;
-//ini_set('display_errors', 1);
-//ini_set('display_startup_errors', 1);
-//error_reporting(E_ALL);
-
 $options = getopt("Dh:p:z:u:x:H:P:", array("ssl")) ;
 $command_name = basename($argv[0]) ;
 $command_version = "0.8" ;
@@ -65,17 +60,12 @@ $zabbix_name = $options['z'] ;
 // Remove spaces from zabbix name for file data and log file creation
 $file_base_name = str_replace(' ', '_', $zabbix_name);
 
-$zabbix_server = ($options['H'] ? $options['H'] : '127.0.0.1');
-$zabbix_server_port = ($options['P'] ? $options['P'] : '10051');
+$zabbix_server = ($options['H'] ?? '127.0.0.1');
+$zabbix_server_port = ($options['P'] ?? '10051');
 
 $debug_mode = isset($options['D']) ;
 
 $ssl = isset($options['ssl']) ;
-
-if ($ssl && !MONGO_SUPPORTS_SSL) {
-  echo "WARNING: --ssl option is specified, but we will not use it, because the PHP Mongo extension does not support SSL!\n" ;
-  $ssl = false ;
-}
 
 $data_lines = array() ;
 
@@ -122,8 +112,8 @@ function write_to_data_lines($zabbix_name, $key, $value)
 //-----------------------------
 //print ("Here in mikoomi mongo plugin ... before connecting mongo");
 
-$mongodb_host = empty($options['h']) ? Mongo::DEFAULT_HOST : $options['h'] ;
-$mongodb_port = empty($options['p']) ? Mongo::DEFAULT_PORT : $options['p']  ;
+$mongodb_host = empty($options['h']) ? 'localhost' : $options['h'] ;
+$mongodb_port = empty($options['p']) ? 27017 : $options['p']  ;
 
 if ((!empty($options['u'])) && (!empty($options['x']))) {
     $connect_string = $options['u'] . ':' . $options['x'] . '@' . $mongodb_host . ':' . $mongodb_port  ;
@@ -136,10 +126,11 @@ if ($ssl) {
   $connect_string .= "/?ssl=true" ;
 }
 //print ("Mongo connect string - " . $connect_string);
-#$mongo_connection = new Mongo("mongodb://$connect_string") ;
-$mongo_connection = new MongoClient("mongodb://$connect_string") ;
 
-if (is_null($mongo_connection)) {
+require_once(__DIR__ . '/../vendor/autoload.php');
+$mongo_connection = new \MongoDB\Client("mongodb://$connect_string") ;
+
+if ($mongo_connection === null) {
     write_to_log("Error in connection to mongoDB using connect string $connect_string") ;
     exit ;
 }
@@ -151,12 +142,13 @@ else {
 //-----------------------------
 // Get server statistics
 //-----------------------------
-$mongo_db_handle = $mongo_connection->selectDB("admin") ;
+$mongo_db_handle = $mongo_connection->selectDatabase("admin") ;
 
 $server_status = $mongo_db_handle->command(array('serverStatus'=>1)) ;
+$server_status = (array)$server_status->toArray()[0];
 
 if (!isset($server_status['ok'])) {
-    write_to_log("Error in executing $command.") ;
+    write_to_log("Error in executing 'serverStatus'=>1") ;
     exit ;
 }
 
@@ -176,11 +168,13 @@ if ($server_status['globalLock']['totalTime'] != null) {
 }
 */
 
+$server_status['globalLock'] = (array)$server_status['globalLock'];
 if ($server_status['globalLock']['totalTime'] != null) {
   $globalLock_totalTime = $server_status['globalLock']['totalTime'] ;
   write_to_data_lines($zabbix_name, "globalLock.totalTime", $globalLock_totalTime) ;
 }
 
+$server_status['globalLock']['currentQueue'] = (array)$server_status['globalLock']['currentQueue'];
 $globalLock_currentQueue_total = $server_status['globalLock']['currentQueue']['total'] ;
 write_to_data_lines($zabbix_name, "globalLock.currentQueue.total", $globalLock_currentQueue_total) ;
 
@@ -190,6 +184,7 @@ write_to_data_lines($zabbix_name, "globalLock.currentQueue.readers", $globalLock
 $globalLock_currentQueue_writers = $server_status['globalLock']['currentQueue']['writers'] ;
 write_to_data_lines($zabbix_name, "globalLock.currentQueue.writers", $globalLock_currentQueue_writers) ;
 
+$server_status['mem'] = (array)$server_status['mem'];
 $mem_bits = $server_status['mem']['bits'] ;
 write_to_data_lines($zabbix_name, "mem.bits", $mem_bits) ;
 
@@ -199,12 +194,14 @@ write_to_data_lines($zabbix_name, "mem.resident", $mem_resident) ;
 $mem_virtual = $server_status['mem']['virtual'] ;
 write_to_data_lines($zabbix_name, "mem.virtual", $mem_virtual) ;
 
+$server_status['connections'] = (array)$server_status['connections'];
 $connections_current = $server_status['connections']['current'] ;
 write_to_data_lines($zabbix_name, "connections.current", $connections_current) ;
 
 $connections_available = $server_status['connections']['available'] ;
 write_to_data_lines($zabbix_name, "connections.available", $connections_available) ;
 
+$server_status['extra_info'] = (array)$server_status['extra_info'];
 $extra_info_heap_usage = round(($server_status['extra_info']['heap_usage_bytes'])/(1024*124), 2) ;
 write_to_data_lines($zabbix_name, "extra_info.heap_usage", $extra_info_heap_usage) ;
 
@@ -269,6 +266,7 @@ write_to_data_lines($zabbix_name, "cursors.clientCursors_size", $cursors_clientC
 $cursors_timedOut = $server_status['cursors']['timedOut'] ;
 write_to_data_lines($zabbix_name, "cursors.timedOut", $cursors_timedOut) ;
 */
+$server_status['opcounters'] = (array)$server_status['opcounters'];
 $opcounters_insert = $server_status['opcounters']['insert'] ;
 write_to_data_lines($zabbix_name, "opcounters.insert", $opcounters_insert) ;
 
@@ -287,6 +285,7 @@ write_to_data_lines($zabbix_name, "opcounters.getmore", $opcounters_getmore) ;
 $opcounters_command = $server_status['opcounters']['command'] ;
 write_to_data_lines($zabbix_name, "opcounters.command", $opcounters_command) ;
 
+$server_status['asserts'] = (array)$server_status['asserts'];
 $asserts_regular = $server_status['asserts']['regular'] ;
 write_to_data_lines($zabbix_name, "asserts.regular", $asserts_regular) ;
 
@@ -302,6 +301,7 @@ write_to_data_lines($zabbix_name, "asserts.user", $asserts_user) ;
 $asserts_rollovers = $server_status['asserts']['rollovers'] ;
 write_to_data_lines($zabbix_name, "asserts.rollovers", $asserts_rollovers) ;
 
+$server_status['network'] = (array)$server_status['network'];
 $network_inbound_traffic_mb = ($server_status['network']['bytesIn'])/(1024*1024) ;
 write_to_data_lines($zabbix_name, "network.inbound.traffic_mb", $network_inbound_traffic_mb) ;
 
@@ -345,13 +345,17 @@ write_to_data_lines($zabbix_name, "logging.datafile_write_time_ms", $logging_dat
 //-----------------------------
 // Get DB list and cumulative DB info
 //-----------------------------
-$db_list = $mongo_connection->listDBs() ;
+$db_list = $mongo_connection->listDatabases() ;
+$db_list = (array)$db_list;
+$db_list = current($db_list);
 
 $db_count = count($db_list) ;
 write_to_data_lines($zabbix_name, "db.count", $db_count) ;
 
+/*
 $totalSize = round(($db_list['totalSize'])/(1024*1024), 2) ;
 write_to_data_lines($zabbix_name, "total.size", $totalSize) ;
+*/
 
 $sharded_db_count = 0 ;
 $total_collection_count = 0 ;
@@ -373,7 +377,7 @@ $db_info_numExtents_array = array() ;
 $db_info_fileSize = array() ;
 
 
-foreach($db_list['databases'] as $db) {
+foreach($db_list as $db) {
     if(isset($db['shards'])) {
         $is_sharded = 'Yes' ;
     }
@@ -381,8 +385,9 @@ foreach($db_list['databases'] as $db) {
        // Do nothing !
     }
 
-    $mongo_db_handle = $mongo_connection->selectDB($db['name']) ;
+    $mongo_db_handle = $mongo_connection->selectDatabase($db['name']) ;
     $db_stats = $mongo_db_handle->command(array('dbStats'=>1)) ;
+	$db_stats = (array)$db_stats->toArray()[0];
 
     $execute_status = $db_stats['ok'] ;
 
@@ -438,7 +443,7 @@ foreach($db_info_collections as $name => $dummy) {
 // Check for replication / replicaSets
 //-----------------------------
 if ($is_sharded == 'No') {
-   $mongo_db_handle = $mongo_connection->selectDB('admin') ;
+   $mongo_db_handle = $mongo_connection->selectDatabase('admin') ;
    $rs_status = $mongo_db_handle->command(array('replSetGetStatus'=>1)) ;
 
    if (!($rs_status['ok'])) {
@@ -455,7 +460,7 @@ if ($is_sharded == 'No') {
        }
        write_to_data_lines($zabbix_name, "replica_set_hosts", $repl_set_member_names)  ;
 
-       $local_mongo_db_handle = $mongo_connection->selectDB('local') ;
+       $local_mongo_db_handle = $mongo_connection->selectDatabase('local') ;
        $col_name = 'oplog.rs' ;
        $mongo_collection = $local_mongo_db_handle->$col_name ;
        $oplog_rs_count = $mongo_collection->count() ;
@@ -532,7 +537,7 @@ if ($is_sharded == 'No') {
 // Check for sharding
 //-----------------------------
 if ($is_sharded == 'Yes') {
-    $mongo_db_handle = $mongo_connection->selectDB('config') ;
+    $mongo_db_handle = $mongo_connection->selectDatabase('config') ;
 
     $mongo_collection = $mongo_db_handle->chunks ;
     $shard_info = $mongo_collection->count() ;
@@ -542,7 +547,7 @@ if ($is_sharded == 'Yes') {
     $shard_info = $mongo_collection->count() ;
     write_to_data_lines($zabbix_name, "sharded_collections_count", $shard_info) ;
 
-    $collection = $mongo_connection->selectDB('config')->selectCollection('collections') ;
+    $collection = $mongo_connection->selectDatabase('config')->selectCollection('collections') ;
     $cursor = $collection->find() ;
     $collection_array = iterator_to_array($cursor) ;
     $collection_info = '' ;
@@ -557,7 +562,7 @@ if ($is_sharded == 'Yes') {
     $shard_info = $mongo_collection->count() ;
     write_to_data_lines($zabbix_name, "shard_count", $shard_info) ;
 
-    $collection = $mongo_connection->selectDB('config')->selectCollection('shards') ;
+    $collection = $mongo_connection->selectDatabase('config')->selectCollection('shards') ;
     $cursor = $collection->find() ;
     $shards_array = iterator_to_array($cursor) ;
     $shard_info = '' ;
@@ -566,7 +571,7 @@ if ($is_sharded == 'Yes') {
     }
     write_to_data_lines($zabbix_name, "shard_info", $shard_info) ;
 
-    $collection = $mongo_connection->selectDB('config')->selectCollection('databases') ;
+    $collection = $mongo_connection->selectDatabase('config')->selectCollection('databases') ;
     $cursor = $collection->find() ;
     $db_array = iterator_to_array($cursor) ;
     $db_info = '' ;
