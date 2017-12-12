@@ -47,6 +47,7 @@ where
    -H    = Zabbix server IP or hostname
    -P    = Zabbix server Port or hostname
    --ssl = Use SSL when connecting to MongoDB
+   --weak-cert-validation = Disable certificate validation
 "  ;
 
 exit ;
@@ -66,6 +67,7 @@ $zabbix_server_port = ($options['P'] ?? '10051');
 $debug_mode = isset($options['D']) ;
 
 $ssl = isset($options['ssl']) ;
+$weak_cert_validation = isset($options['weak-cert-validation']);
 
 $data_lines = array() ;
 
@@ -127,8 +129,13 @@ if ($ssl) {
 }
 //print ("Mongo connect string - " . $connect_string);
 
+// Driver Options
+$driverOptions = [
+	'weak_cert_validation' => $weak_cert_validation
+];
+
 require_once(__DIR__ . '/../vendor/autoload.php');
-$mongo_connection = new \MongoDB\Client("mongodb://$connect_string") ;
+$mongo_connection = new \MongoDB\Client("mongodb://$connect_string", [], $driverOptions) ;
 
 if ($mongo_connection === null) {
     write_to_log("Error in connection to mongoDB using connect string $connect_string") ;
